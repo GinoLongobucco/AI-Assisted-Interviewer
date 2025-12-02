@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
-body {
-  font-family: Arial, Helvetica, sans-serif;
+/* body {
+  padding: 20px;
+  background-color: #f7f9fc;
+  font-family: Arial, sans-serif;
 }
+
+.main-container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.card-custom {
+  border-radius: 12px;
+  padding: 20px;
+  background: white;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+} */

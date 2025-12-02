@@ -1,18 +1,55 @@
-// src/app/(auth)/login/page.jsx
+"use client";
+
+import { useState } from "react";
+import { auth  } from "@/services/InterviewService";
+
 export default function LoginPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      const response = await auth({ email, password });
+      console.log("Entra al login:", response);
+    } catch (error) {
+      console.error("Error en login:", error.message);
+    }
+  };
+
   return (
-    <main>
-      <div className="bg-p-8 rounded-lg shadow-lg max-w-md mx-auto">
-        <h1 className="text-2xl">Login</h1>
-        <form className="bg-gray-100 p-6 rounded shadow-md 
-            [&>input]:bg-white [&>input]:border [&>input]:p-2 
-            [&>input]:mb-4 [&>input]:w-full [&>button]:bg-blue-500 
-            [&>button]:text-white [&>button]:p-2 [&>button]:w-full 
-            [&>button]:rounded hover:[&>button]:bg-blue-600">
-            <input type="text" placeholder="Nombre" />
-            <input type="email" placeholder="Email" />
-            <input type="password" placeholder="Password" />
-            <button type="submit">Entrar</button>
+    <main className="d-flex align-items-center justify-content-center min-vh-100 bg-light">
+      <div
+        className="card shadow-lg p-4"
+        style={{ maxWidth: "420px", width: "100%" }}
+      >
+        <h1 className="text-center mb-4">Login</h1>
+
+        <form onSubmit={handleSubmit}>
+          <div className="mb-3">
+            <label className="form-label">Email</label>
+            <input
+              type="email"
+              className="form-control"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+
+          <div className="mb-3">
+            <label className="form-label">Password</label>
+            <input
+              type="password"
+              className="form-control"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+
+          <button className="btn btn-primary w-100 mt-3" type="submit">
+            Login
+          </button>
         </form>
       </div>
     </main>
