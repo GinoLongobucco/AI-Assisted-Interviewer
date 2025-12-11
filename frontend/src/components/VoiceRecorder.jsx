@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { uploadAudio } from "@/services/InterviewService";
+import { sendAnswer } from "@/services/InterviewService";
 
 export default function voiceRecorder() {
   const [recording, setRecording] = useState(false);
@@ -41,7 +41,7 @@ export default function voiceRecorder() {
 
         new Audio(url).play();
 
-        const respuesta = await uploadAudio(formData);
+        const respuesta = await sendAnswer(formData);
         console.log("Respuesta backend", respuesta);
       };
 
@@ -59,9 +59,7 @@ export default function voiceRecorder() {
   };
 
   return (
-    <div>
-      <h5>Grabador de audio</h5>
-
+    <div className="mt-5">
       {!recording ? (
         <button onClick={startRecording} className="btn btn-primary">
           Iniciar respuesta
