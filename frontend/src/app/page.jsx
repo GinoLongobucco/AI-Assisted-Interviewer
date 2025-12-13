@@ -52,7 +52,7 @@ export default function HomePage() {
   };
 
 
-  //espera 3 seg y llama al se mueve de ruta
+  //espera 3 seg y se mueve de ruta
   useEffect(() => {
     console.log('setRoleSent(true); ', roleSent)
     if (!roleSent) return;
@@ -61,12 +61,9 @@ export default function HomePage() {
       await handleQuestion();
       console.log('questionnn ', question)
 
-      // si hay pregunta → redireccionar
       if (question) {
         router.push("/interview");
       }
-
-      setLoading(false);
     }, 3000);
 
     return () => clearTimeout(timer);
