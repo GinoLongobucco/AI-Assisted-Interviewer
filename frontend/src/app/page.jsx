@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { chooseRole, receiveQuestion } from "@/services/InterviewService";
+import { startInterview, receiveQuestion } from "@/services/InterviewService";
 
 export default function HomePage() {
   const router = useRouter();
@@ -18,56 +18,49 @@ export default function HomePage() {
   const [selectedRole, setSelectedRole] = useState(null);
   const [loading, setLoading] = useState(false);
   const [question, setQuestion] = useState(null);
-  const [roleSent, setRoleSent] = useState(false);
+  const [interviewId, setInterviewId] = useState(null);
+
+  // Limpiar localStorage cuando se carga la página principal
+  useEffect(() => {
+    localStorage.removeItem("currentInterviewId");
+    localStorage.removeItem("currentQuestion");
+  }, []);
 
   const handleRol = async () => {
     if (!selectedRole) return;
     setLoading(true);
-    setRoleSent(true);
 
     try {
-      const response = await chooseRole(selectedRole);
-      console.log("Envia el rol:", response);
-      // setRoleSent(true);
-    }
-    catch (error) {
-      console.error("Error enviando rol:", error.message);
-    }
-  };
+      const response = await startInterview(selectedRole);
+      console.log("Entrevista iniciada:", response);
 
+      // Save interview data
+      setInterviewId(response.interview_id);
+      setQuestion(response.first_question);
 
-  const handleQuestion = async () => {
-    setQuestion('Pregunta simulada 1');
+      // Store in localStorage for interview page
+      localStorage.setItem("currentInterviewId", response.interview_id);
+      localStorage.setItem("currentQuestion", response.first_question);
+      localStorage.setItem("totalQuestions", response.total_questions);
 
-    // if (!selectedRole) return;
-    // setLoading(true);
-    try {
-      const response = await receiveQuestion();
-      setQuestion(response.question);
-      console.log("Recibe la pregunta desde el modelo:", response);
-    }
-    catch (error) {
-      console.error("Error el recibir la pregunta:", error.message);
-    }
-  };
-
-
-  //espera 3 seg y se mueve de ruta
-  useEffect(() => {
-    console.log('setRoleSent(true); ', roleSent)
-    if (!roleSent) return;
-
-    const timer = setTimeout(async () => {
-      await handleQuestion();
-      console.log('questionnn ', question)
-
-      if (question) {
+      // Navigate to interview page
+      setTimeout(() => {
         router.push("/interview");
-      }
-    }, 3000);
+      }, 1000);
+    }
+    catch (error) {
+      console.error("Error iniciando entrevista:", error.message);
+      setLoading(false);
+    }
+  };
 
-    return () => clearTimeout(timer);
-  }, [roleSent, question]);
+
+  // Cuando se obtiene la pregunta, navega a la página de entrevista
+  useEffect(() => {
+    if (question && interviewId) {
+      router.push("/interview");
+    }
+  }, [question, interviewId, router]);
 
 
   return (

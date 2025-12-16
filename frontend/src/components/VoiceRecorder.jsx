@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { sendAnswer } from "@/services/InterviewService";
+import { submitAnswer } from "@/services/InterviewService";
 
 
-export default function voiceRecorder({ onAnswerSent }) {
+export default function VoiceRecorder({ interviewId, onAnswerSubmitted }) {
   const [recording, setRecording] = useState(false);
   const [audioUrl, setAudioUrl] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
 
   const mediaRecorderRef = useRef(null);
   const audioChunks = useRef([]);
@@ -46,30 +47,32 @@ export default function voiceRecorder({ onAnswerSent }) {
 
 
   const sendRecording = async () => {
-    //temporarl
-    onAnswerSent();
-
-    if (!audioBlobRef.current) return;
+    if (!audioBlobRef.current || !interviewId) return;
 
     setLoading(true);
 
-    const formData = new FormData();
-    formData.append("file", audioBlobRef.current, "grabacion.webm");
-
     try {
-      // const respuesta = await sendAnswer(formData);
-      // console.log("Respuesta backend", respuesta);
+      const response = await submitAnswer(interviewId, audioBlobRef.current);
+      console.log("Respuesta backend:", response);
 
-      // limpiar estado para la siguiente pregunta
+      // Store result to display
+      setResult(response);
+
+      // Clear audio
       setAudioUrl(null);
       audioBlobRef.current = null;
 
-      // onAnswerSent();
     } catch (error) {
       console.error("Error enviando grabación", error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleNextQuestion = () => {
+    // Notify parent component to load next question
+    onAnswerSubmitted(result);
+    setResult(null);
   };
 
 
@@ -92,9 +95,9 @@ export default function voiceRecorder({ onAnswerSent }) {
         </button>
       )}
 
-      {audioUrl && (
+      {audioUrl && !result && (
         <>
-          <div className="mt-5">
+          <div className="mt-4">
             <p>Reproducción:</p>
             <audio controls src={audioUrl}></audio>
           </div>
@@ -106,11 +109,43 @@ export default function voiceRecorder({ onAnswerSent }) {
                 onClick={sendRecording}
                 disabled={loading}
               >
-                {loading ? "Procesando..." : "Continuar"}
+                {loading ? "Procesando..." : "Enviar respuesta"}
               </button>
             </div>
           </div>
         </>
+      )}
+
+      {result && (
+        <div className="mt-4 card shadow-sm">
+          <div className="card-body">
+            <h5 className="card-title">Resultado de tu respuesta</h5>
+
+            <div className="mb-3">
+              <strong>Transcripción:</strong>
+              <p className="text-muted">{result.transcription}</p>
+            </div>
+
+            <div className="mb-3">
+              <strong>Puntuación:</strong>
+              <h3 className="text-primary">{result.score} / 5</h3>
+            </div>
+
+            <div className="mb-3">
+              <strong>Evaluación:</strong>
+              <p className="text-muted">{result.reasoning}</p>
+            </div>
+
+            <div className="text-center mt-4">
+              <button
+                className="btn btn-success btn-lg px-5"
+                onClick={handleNextQuestion}
+              >
+                {result.completed ? "Ver Resultados Finales" : "Siguiente Pregunta →"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

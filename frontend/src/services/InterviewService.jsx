@@ -1,36 +1,39 @@
+const API_URL = "http://localhost:8000";
 
-export async function auth(formData) {
-  const res = await fetch("http://", {
+export async function getConfig() {
+  const res = await fetch(`${API_URL}/`);
+
+  if (!res.ok) {
+    throw new Error("Error al obtener configuración");
+  }
+
+  return await res.json();
+}
+
+export async function startInterview(role) {
+  const res = await fetch(`${API_URL}/ai/start-interview`, {
     method: "POST",
-    body: formData,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ role }),
   });
 
   if (!res.ok) {
-    throw new Error("Error al autenticar");
+    throw new Error("Error iniciando entrevista");
   }
 
   return await res.json();
 }
 
 
-export async function chooseRole(rol) {
-  const res = await fetch("http://", {
-    method: "POST",
-    body: rol,
-  });
-
-  if (!res.ok) {
-    throw new Error("Error al elegir un rol");
-  }
-
-  return await res.json();
-}
-
-
-export async function receiveQuestion() {
-  const res = await fetch("http://", {
-    method: "GET",
-  });
+export async function receiveQuestion(interviewId) {
+  const res = await fetch(
+    `${API_URL}/ai/next-question/${interviewId}`,
+    {
+      method: "GET",
+    }
+  );
 
   if (!res.ok) {
     throw new Error("Error al recibir la pregunta");
@@ -40,8 +43,11 @@ export async function receiveQuestion() {
 }
 
 
-export async function sendAnswer(formData) {
-  const res = await fetch("http://", {
+export async function submitAnswer(interviewId, audioBlob) {
+  const formData = new FormData();
+  formData.append("file", audioBlob, "answer.webm");
+
+  const res = await fetch(`${API_URL}/ai/submit-answer/${interviewId}`, {
     method: "POST",
     body: formData,
   });
@@ -51,4 +57,22 @@ export async function sendAnswer(formData) {
   }
 
   return await res.json();
+}
+
+
+export async function getInterviewResults(interviewId) {
+  const res = await fetch(`${API_URL}/ai/interview-results/${interviewId}`, {
+    method: "GET",
+  });
+
+  if (!res.ok) {
+    throw new Error("Error al obtener resultados");
+  }
+
+  return await res.json();
+}
+
+
+export async function getQuestionAudio(interviewId) {
+  return `${API_URL}/ai/question-audio/${interviewId}`;
 }

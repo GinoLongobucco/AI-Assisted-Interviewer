@@ -3,16 +3,13 @@
 Este backend implementa la lógica necesaria para administrar entrevistas
 por voz, almacenar candidatos, preguntas, respuestas, transcripciones y
 evaluaciones generadas por IA. Está construido con FastAPI, Supabase,
-OpenAI y Docker.
+OpenAI (se puede cambiar) y Docker.
 
 ## Requisitos
 
 -   Docker y Docker Compose instalados\
 -   Archivo `.env` ubicado en `/backend` con las claves necesarias:
 
-```{=html}
-<!-- -->
-```
     SUPABASE_URL=your_supabase_project_url
     SUPABASE_KEY=your_supabase_service_key
     OPENAI_API_KEY=your_openai_key
@@ -21,16 +18,10 @@ OpenAI y Docker.
 
 1.  Ir al directorio del backend:
 
-```{=html}
-<!-- -->
-```
     cd backend
 
 2.  Construir e iniciar el servicio:
 
-```{=html}
-<!-- -->
-```
     docker compose up --build
 
 3.  Acceder a la documentación interactiva:

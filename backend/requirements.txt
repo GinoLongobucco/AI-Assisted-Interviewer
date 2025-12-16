@@ -6,3 +6,7 @@ aiofiles
 requests
 pydantic
 python-multipart
+openai
+google-generativeai
+gTTS
+pydub
