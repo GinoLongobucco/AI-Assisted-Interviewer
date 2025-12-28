@@ -10,13 +10,13 @@ export async function getConfig() {
   return await res.json();
 }
 
-export async function startInterview(role) {
+export async function startInterview(data) {
   const res = await fetch(`${API_URL}/ai/start-interview`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ role }),
+    body: JSON.stringify(data),
   });
 
   if (!res.ok) {

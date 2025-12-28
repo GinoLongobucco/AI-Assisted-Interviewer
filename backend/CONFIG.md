@@ -15,15 +15,12 @@ SUPABASE_KEY=your_supabase_key_here
 # Choose either "gemini" or "openai"
 LLM_PROVIDER=gemini
 
-# API Keys - provide the one matching your LLM_PROVIDER
+
 GEMINI_API_KEY=your_gemini_api_key_here
 OPENAI_API_KEY=your_openai_api_key_here
 
-# Groq API Key (for free Whisper large v3 transcription)
 GROQ_API_KEY=your_groq_api_key_here
 
-# Interview Configuration
-# Easily change the number of questions per interview
 MAX_QUESTIONS=10
 ```
 

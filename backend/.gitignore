@@ -15,12 +15,15 @@ __pycache__/
 *.so
 venv/
 env/
+.pytest_cache/
 
 # ============================
 # AUDIO / TEMP FILES
 # ============================
 tmp_*.wav
 *.wav
+*.mp3
+/tmp/tts_cache/
 
 # ============================
 # LOGS

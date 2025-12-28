@@ -3,13 +3,11 @@ from typing import List, Dict
 from openai import OpenAI
 import google.generativeai as genai
 
-# Initialize clients
 openai_client = None
 gemini_model = None
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
 
-# Initialize the appropriate client
 if LLM_PROVIDER == "openai":
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
@@ -53,8 +51,6 @@ def call_llm(messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
             if not gemini_model:
                 raise ValueError("Gemini model not initialized. Check GEMINI_API_KEY in .env")
             
-            # Convert messages to Gemini format
-            # Gemini doesn't use system messages in the same way, so we'll combine
             prompt = ""
             for msg in messages:
                 if msg["role"] == "system":

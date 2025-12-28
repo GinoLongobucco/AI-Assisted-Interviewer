@@ -6,20 +6,29 @@ import aiofiles
 from datetime import datetime
 from io import BytesIO
 
-from fastapi import FastAPI, File, UploadFile, Form, Body, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, Body, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from supabase import create_client
-from app.state.interviews import (
-    create_interview, 
-    get_interview, 
-    get_current_question,
-    submit_answer,
-    is_interview_complete,
+from pydantic import BaseModel, EmailStr
+from typing import Optional, List, Dict
+
+from app.services.database_service import (
+    create_or_get_candidate,
+    create_interview,
+    complete_interview,
+    save_questions,
+    get_interview_questions,
+    save_answer,
+    get_interview,
     get_interview_results,
-    MAX_QUESTIONS
+    get_all_interviews,
+    get_interview_count,
+    authenticate_admin,
+    get_answer_count
 )
+from app.services.auth_service import create_access_token, verify_access_token
+from app.services.config_service import read_env_config, update_env_config, validate_config_update
+
 from app.model.interviewer import (
     generate_all_questions,
     transcribe_audio,
@@ -28,8 +37,7 @@ from app.model.interviewer import (
 from dotenv import load_dotenv
 
 # ============================================================================
-# CARGAR VARIABLES DE ENTORNO (.env) DESDE /backend SIN IMPORTAR DESDE DÓNDE
-# SE EJECUTE UVICORN
+# CARGAR VARIABLES DE ENTORNO (.env) DESDE /backend
 # ============================================================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
@@ -39,14 +47,8 @@ load_dotenv(ENV_PATH)
 # ============================================================================
 # LEER VARIABLES
 # ============================================================================
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-if SUPABASE_URL and SUPABASE_KEY:
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-else:
-    supabase = None
-    print("WARNING: Supabase not configured")
+MAX_QUESTIONS = int(os.getenv("MAX_QUESTIONS", "10"))
+QUESTION_TIMEOUT_SECONDS = int(os.getenv("QUESTION_TIMEOUT_SECONDS", "120"))
 
 # ============================================================================
 # CONFIG FASTAPI
@@ -64,12 +66,48 @@ app.add_middleware(
 # ============================================================================
 # MODELS
 # ============================================================================
-class RoleRequest(BaseModel):
+class StartInterviewRequest(BaseModel):
+    email: EmailStr
     role: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+
+class AdminLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class ConfigUpdateRequest(BaseModel):
+    MAX_QUESTIONS: Optional[int] = None
+    QUESTION_TIMEOUT_SECONDS: Optional[int] = None
 
 
 # ============================================================================
-# ENDPOINTS
+# DEPENDENCY: AUTH
+# ============================================================================
+def get_current_admin(authorization: Optional[str] = Header(None)):
+    """Dependency to get current admin from JWT token"""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header missing")
+    
+    try:
+        # Extract token from "Bearer <token>"
+        scheme, token = authorization.split()
+        if scheme.lower() != "bearer":
+            raise HTTPException(status_code=401, detail="Invalid authentication scheme")
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+    
+    payload = verify_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    return payload
+
+
+# ============================================================================
+# PUBLIC ENDPOINTS
 # ============================================================================
 
 @app.get("/")
@@ -77,28 +115,39 @@ def read_root():
     return {
         "message": "AI Interview Backend API",
         "max_questions": MAX_QUESTIONS,
-        "question_timeout_seconds": int(os.getenv("QUESTION_TIMEOUT_SECONDS", "120")),
+        "question_timeout_seconds": QUESTION_TIMEOUT_SECONDS,
         "llm_provider": os.getenv("LLM_PROVIDER", "gemini")
     }
 
 
 @app.post("/ai/start-interview")
-async def start_interview(data: RoleRequest):
+async def start_interview(data: StartInterviewRequest):
     """
-    Start a new interview: generate all questions using LLM
+    Start a new interview: create candidate, generate questions, save to DB
     """
     try:
-        print(f"Starting interview for role: {data.role}")
-        print(f"MAX_QUESTIONS: {MAX_QUESTIONS}")
+        print(f"Starting interview for role: {data.role}, email: {data.email}")
+        
+        # Create or get candidate
+        candidate = create_or_get_candidate(
+            email=data.email,
+            first_name=data.first_name,
+            last_name=data.last_name
+        )
+        print(f"Candidate created/retrieved: {candidate['id']}")
         
         # Generate all questions at once
-        print("Calling generate_all_questions...")
         questions = generate_all_questions(data.role, MAX_QUESTIONS)
         print(f"Generated {len(questions)} questions")
         
-        # Create interview with questions
-        interview_id = create_interview(data.role, questions)
+        # Create interview in database
+        interview = create_interview(candidate["id"], data.role)
+        interview_id = interview["id"]
         print(f"Created interview with ID: {interview_id}")
+        
+        # Save questions to database
+        saved_questions = save_questions(interview_id, data.role, questions)
+        print(f"Saved {len(saved_questions)} questions to database")
         
         # Return interview ID and first question
         return {
@@ -124,50 +173,69 @@ def next_question(interview_id: str):
         raise HTTPException(status_code=404, detail="Interview not found")
     
     # Check if interview is complete
-    if is_interview_complete(interview_id):
+    if interview.get("end_time"):
         return {
             "question": None,
             "completed": True,
             "message": "Interview completed"
         }
     
-    # Get current question
-    question = get_current_question(interview_id)
-    if not question:
+    # Get all questions for this interview
+    questions = get_interview_questions(interview_id)
+    
+    # Get count of submitted answers
+    answer_count = get_answer_count(interview_id)
+    
+    # Check if all questions answered
+    if answer_count >= len(questions):
         return {
             "question": None,
             "completed": True,
-            "message": "No more questions"
+            "message": "All questions answered"
         }
     
-    current_index = interview["current_question_index"]
-    total = interview["max_questions"]
+    # Get next question (index = answer_count)
+    if answer_count < len(questions):
+        next_q = questions[answer_count]
+        return {
+            "question": next_q["content"],
+            "question_number": answer_count + 1,
+            "total_questions": len(questions),
+            "completed": False
+        }
     
     return {
-        "question": question,
-        "question_number": current_index + 1,
-        "total_questions": total,
-        "completed": False
+        "question": None,
+        "completed": True,
+        "message": "No more questions"
     }
 
 
 @app.post("/ai/submit-answer/{interview_id}")
 async def submit_interview_answer(interview_id: str, file: UploadFile = File(...)):
     """
-    Submit an answer: transcribe audio, evaluate, and score
+    Submit an answer: transcribe audio, evaluate, save to DB
     """
     interview = get_interview(interview_id)
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")
     
-    if is_interview_complete(interview_id):
+    if interview.get("end_time"):
         raise HTTPException(status_code=400, detail="Interview already completed")
     
     try:
-        # Get current question
-        current_question = get_current_question(interview_id)
-        if not current_question:
-            raise HTTPException(status_code=400, detail="No current question")
+        # Get all questions
+        questions = get_interview_questions(interview_id)
+        
+        # Get current question index
+        answer_count = get_answer_count(interview_id)
+        
+        if answer_count >= len(questions):
+            raise HTTPException(status_code=400, detail="All questions already answered")
+        
+        current_question_obj = questions[answer_count]
+        current_question_text = current_question_obj["content"]
+        current_question_id = current_question_obj["id"]
         
         # Read audio file
         audio_bytes = await file.read()
@@ -178,22 +246,33 @@ async def submit_interview_answer(interview_id: str, file: UploadFile = File(...
         transcription = transcribe_audio(audio_file)
         
         # Evaluate answer using LLM
-        evaluation = evaluate_answer(current_question, transcription)
+        evaluation = evaluate_answer(current_question_text, transcription)
         
-        # Submit answer to interview state
-        success = submit_answer(
-            interview_id,
-            transcription,
-            evaluation["score"],
-            evaluation["reasoning"]
+        # Save answer to database
+        saved_answer = save_answer(
+            interview_id=interview_id,
+            question_id=current_question_id,
+            transcript=transcription,
+            score=evaluation["score"],
+            feedback=evaluation["reasoning"]
         )
         
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to submit answer")
+        # Check if this was the last question
+        new_answer_count = answer_count + 1
+        interview_complete = new_answer_count >= len(questions)
         
-        # Check if there's a next question
-        next_q = get_current_question(interview_id)
-        interview_complete = is_interview_complete(interview_id)
+        # If complete, update interview
+        if interview_complete:
+            # Calculate total score
+            from app.services.database_service import get_interview_answers
+            all_answers = get_interview_answers(interview_id)
+            total_score = sum(ans["score"] or 0 for ans in all_answers)
+            complete_interview(interview_id, total_score)
+        
+        # Get next question if available
+        next_q = None
+        if new_answer_count < len(questions):
+            next_q = questions[new_answer_count]["content"]
         
         return {
             "transcription": transcription,
@@ -204,13 +283,16 @@ async def submit_interview_answer(interview_id: str, file: UploadFile = File(...
         }
         
     except Exception as e:
+        print(f"Error processing answer: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error processing answer: {str(e)}")
 
 
 @app.get("/ai/interview-results/{interview_id}")
 def get_results(interview_id: str):
     """
-    Get complete interview results
+    Get complete interview results from database
     """
     results = get_interview_results(interview_id)
     if not results:
@@ -228,9 +310,14 @@ async def get_question_audio(interview_id: str):
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")
     
-    current_question = get_current_question(interview_id)
-    if not current_question:
+    # Get current question
+    questions = get_interview_questions(interview_id)
+    answer_count = get_answer_count(interview_id)
+    
+    if answer_count >= len(questions):
         raise HTTPException(status_code=400, detail="No current question")
+    
+    current_question = questions[answer_count]["content"]
     
     try:
         from gtts import gTTS
@@ -269,3 +356,152 @@ async def get_question_audio(interview_id: str):
         print(f"Error generating TTS: {str(e)}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generating TTS: {str(e)}")
+
+
+# ============================================================================
+# ADMIN ENDPOINTS
+# ============================================================================
+
+@app.post("/api/admin/login")
+async def admin_login(data: AdminLoginRequest):
+    """
+    Admin login endpoint - returns JWT token
+    """
+    try:
+        admin = authenticate_admin(data.email, data.password)
+        
+        if not admin:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        # Create JWT token
+        token_data = {
+            "id": str(admin["id"]),
+            "email": admin["email"]
+        }
+        access_token = create_access_token(token_data)
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "admin": admin
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Login error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Login failed")
+
+
+@app.get("/api/admin/interviews")
+async def list_interviews(
+    page: int = 1,
+    limit: int = 20,
+    role: Optional[str] = None,
+    email: Optional[str] = None,
+    admin=Depends(get_current_admin)
+):
+    """
+    Get all interviews with pagination and filters (admin only)
+    """
+    try:
+        offset = (page - 1) * limit
+        
+        filters = {}
+        if role:
+            filters["role"] = role
+        if email:
+            filters["email"] = email
+        
+        interviews = get_all_interviews(limit=limit, offset=offset, filters=filters)
+        total_count = get_interview_count(filters=filters)
+        
+        return {
+            "interviews": interviews,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total_count,
+                "pages": (total_count + limit - 1) // limit
+            }
+        }
+    except Exception as e:
+        print(f"Error fetching interviews: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error fetching interviews")
+
+
+@app.get("/api/admin/interviews/{interview_id}")
+async def get_interview_detail(
+    interview_id: str,
+    admin=Depends(get_current_admin)
+):
+    """
+    Get detailed interview data (admin only)
+    """
+    results = get_interview_results(interview_id)
+    if not results:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    
+    return results
+
+
+@app.get("/api/admin/config")
+async def get_config(admin=Depends(get_current_admin)):
+    """
+    Get current configuration (admin only)
+    """
+    try:
+        config = read_env_config()
+        
+        return {
+            "MAX_QUESTIONS": config.get("MAX_QUESTIONS", "10"),
+            "QUESTION_TIMEOUT_SECONDS": config.get("QUESTION_TIMEOUT_SECONDS", "120")
+        }
+    except Exception as e:
+        print(f"Error reading config: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error reading configuration")
+
+
+@app.put("/api/admin/config")
+async def update_config(
+    data: ConfigUpdateRequest,
+    admin=Depends(get_current_admin)
+):
+    """
+    Update configuration (admin only)
+    """
+    try:
+        updates = {}
+        
+        if data.MAX_QUESTIONS is not None:
+            updates["MAX_QUESTIONS"] = str(data.MAX_QUESTIONS)
+        
+        if data.QUESTION_TIMEOUT_SECONDS is not None:
+            updates["QUESTION_TIMEOUT_SECONDS"] = str(data.QUESTION_TIMEOUT_SECONDS)
+        
+        # Validate updates
+        is_valid, error_msg = validate_config_update(updates)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
+        
+        # Apply updates
+        success = update_env_config(updates)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update configuration")
+        
+        # Reload environment variables (for current process)
+        global MAX_QUESTIONS, QUESTION_TIMEOUT_SECONDS
+        if "MAX_QUESTIONS" in updates:
+            MAX_QUESTIONS = int(updates["MAX_QUESTIONS"])
+        if "QUESTION_TIMEOUT_SECONDS" in updates:
+            QUESTION_TIMEOUT_SECONDS = int(updates["QUESTION_TIMEOUT_SECONDS"])
+        
+        return {
+            "message": "Configuration updated successfully",
+            "config": updates
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating config: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error updating configuration")

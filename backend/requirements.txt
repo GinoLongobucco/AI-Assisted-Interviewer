@@ -10,3 +10,8 @@ openai
 google-generativeai
 gTTS
 pydub
+bcrypt
+pyjwt
+pytest
+pytest-asyncio
+httpx
